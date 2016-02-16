@@ -15,7 +15,7 @@ sourceSets {
 }
 
 intellij {
-    version 'LATEST-EAP-SNAPSHOT'
+    version 'IC-14.1.4'
     plugins 'coverage'
     plugins 'android'
     pluginName 'AndroidPropertyManager'

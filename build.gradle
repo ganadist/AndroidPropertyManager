@@ -1,8 +1,21 @@
+buildscript {
+    ext.kotlin_version = '1.0.0'
+
+    repositories {
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
 plugins {
     id "org.jetbrains.intellij" version "0.0.39"
 }
 
 apply plugin: 'org.jetbrains.intellij'
+apply plugin: 'kotlin'
 apply plugin: 'java'
 
 compileJava {
@@ -10,12 +23,8 @@ compileJava {
     targetCompatibility = 1.8
 }
 
-sourceSets {
-    main.java.srcDirs += 'src/main/java'
-}
-
 intellij {
-    version 'IC-14.1.4'
+    version 'IC-15.0.3'
     plugins 'coverage'
     plugins 'android'
     pluginName 'AndroidPropertyManager'
@@ -27,10 +36,15 @@ intellij {
 
 version '1.3.99'
 
+sourceSets {
+    main.java.srcDirs += 'src/main/java'
+}
+
 repositories {
-  mavenCentral()
+    mavenCentral()
 }
 
 dependencies {
-  compile 'com.android.tools.ddms:ddmlib:22.0'
+    compile "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    compile 'com.android.tools.ddms:ddmlib:22.0'
 }

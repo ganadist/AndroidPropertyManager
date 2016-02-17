@@ -24,10 +24,12 @@ import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowFactory;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentFactory;
+import core.Device;
 import core.DeviceManager;
 import core.Property;
 import exception.NullAndroidHomeException;
 import exception.NullValueException;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.event.TableModelEvent;
@@ -42,6 +44,8 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+
+import static core.Device.*;
 
 public class PluginViewFactory implements ToolWindowFactory {
 
@@ -80,11 +84,11 @@ public class PluginViewFactory implements ToolWindowFactory {
 
     private boolean mIsUpdateDone;
     private final Color DEFAULT_TABLE_BACKGROUND_COLOR;
-
+    private final Color DISABLED_BACKGROUND_COLOR = new Color(230, 230, 230);
 
     public PluginViewFactory() {
         sPluginViewFactory = this;
-        mDeviceManager = DeviceManager.getInstance();
+        mDeviceManager = core.DeviceManagerKt.getDeviceManagerInstance();
         DEFAULT_TABLE_BACKGROUND_COLOR = mPropTable.getBackground();
     }
 
@@ -94,12 +98,8 @@ public class PluginViewFactory implements ToolWindowFactory {
 
 
     public void createToolWindowContent(Project project, ToolWindow toolWindow) {
-        try {
             mDeviceManager.adbInit();
-        } catch (NullAndroidHomeException e) {
-            e.printStackTrace();
-            return;
-        }
+
         mProject = project;
         mPropertiesComponent = PropertiesComponent.getInstance(mProject);
         mPropNameComboBox = new PropNameComboBox(mDeviceManager.getPropertyNames());
@@ -111,33 +111,44 @@ public class PluginViewFactory implements ToolWindowFactory {
         ContentFactory contentFactory = ContentFactory.SERVICE.getInstance();
         Content content = contentFactory.createContent(mPluginViewContent, "", false);
         toolWindow.getContentManager().addContent(content);
-
     }
 
-    public void SelectedDeviceChanged() {
-        mDeviceManager.changeDevice(mDeviceListComboBox.getSelectedItem().toString());
-        mDeviceManager.setRootMode();
-
-        switch (mDeviceManager.getCurrentDeviceState()) {
-            case DeviceManager.DeviceState.PROPERTY_EDITABLE:
-                mPropTable.setEnabled(true);
-                mPropTable.setBackground(DEFAULT_TABLE_BACKGROUND_COLOR);
-                setHint("Device is root-mode");
-                break;
-            case DeviceManager.DeviceState.PROPERTY_VISIBLE:
-                mPropTable.setEnabled(false);
-                mPropTable.setBackground(new Color(230, 230, 230));
-                setHint("Device is user-mode : You can't edit value");
-                break;
-            case DeviceManager.DeviceState.PROPERTY_INVISIBLE:
-                mPropTable.setEnabled(false);
-                mPropTable.setBackground(new Color(230, 230, 230));
-                clearTable();
-                setHint("Device is unauthorized or offline");
-                break;
+    private StateChangeListener mStateChangeListener = new StateChangeListener() {
+        @Override
+        public void onStateChanged(@NotNull State state) {
+            final Component widgets[] = {
+                    mPropTable,
+                    mRestartRuntimeButton,
+                    mPushPropFileButton,
+            };
+            switch(state) {
+                case PROPERTY_EDITABLE: {
+                    for (Component w : widgets) {
+                        w.setEnabled(true);
+                        w.setBackground(DEFAULT_TABLE_BACKGROUND_COLOR);
+                    }
+                    setHint("Device is root-mode");
+                }
+                    break;
+                case PROPERTY_VISIBLE: {
+                    for (Component w : widgets) {
+                        w.setEnabled(false);
+                        w.setBackground(DISABLED_BACKGROUND_COLOR);
+                    }
+                    setHint("Device is user-mode : You can't edit value");
+                }
+                    break;
+                case PROPERTY_INVISIBLE:
+                    for (Component w : widgets) {
+                        w.setEnabled(false);
+                        w.setBackground(DISABLED_BACKGROUND_COLOR);
+                    }
+                    clearTable();
+                    setHint("Device is unauthorized or offline");
+                    break;
+            }
         }
-
-    }
+    };
 
     private void viewComponentInit() {
         TableCellEditor editor = new DefaultCellEditor(mPropNameComboBox);
@@ -167,15 +178,10 @@ public class PluginViewFactory implements ToolWindowFactory {
                     String value = valueObject.toString();
                     if (property != null) {
                         if (!value.equals(mDeviceManager.getProperty(name))) {
-                            try {
+
                                 mDeviceManager.setPropertyValue(name, value);
                                 saveTable();
-                            } catch (NullValueException e) {
-                                cellChangeToCurrentValueAtRow(row);
-                                e.printStackTrace();
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
+
                         }
                     } else if (value != null) {
                         mDeviceManager.putProperty(name, new Property(name, value));
@@ -191,12 +197,14 @@ public class PluginViewFactory implements ToolWindowFactory {
             @Override
             public void itemStateChanged(ItemEvent itemEvent) {
                 if (ItemEvent.SELECTED == itemEvent.getStateChange()) {
-                    SelectedDeviceChanged();
+                    String chosen = mDeviceListComboBox.getSelectedItem().toString();
+                    Device device = mDeviceManager.changeDevice(chosen);
+                    if (device != null) {
+                        device.setStateChangeListener(mStateChangeListener);
+                    }
                 }
-
             }
         });
-
 
         mTableViewListComboBox.setPrototypeDisplayValue("XXXXXXXXXXXXX");
         mTableViewListComboBox.setEditable(true);
@@ -214,14 +222,12 @@ public class PluginViewFactory implements ToolWindowFactory {
             }
         });
 
-
         mRefreshButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent actionEvent) {
                 mDeviceManager.updatePropFromDevice();
             }
         });
-
 
         final JFileChooser jFileChooser = new JFileChooser();
         jFileChooser.setCurrentDirectory(new File(mProject.getBasePath()));
@@ -293,36 +299,16 @@ public class PluginViewFactory implements ToolWindowFactory {
         mRestartRuntimeButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent actionEvent) {
-                try {
                     PluginViewFactory.getInstance().setHint("Device is restarting runtime...");
-                    mDeviceManager.restartRuntime();
-                } catch (TimeoutException e) {
-                    e.printStackTrace();
-                } catch (AdbCommandRejectedException e) {
-                    e.printStackTrace();
-                } catch (ShellCommandUnresponsiveException e) {
-                    e.printStackTrace();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+                    mDeviceManager.getDevice().restart();
             }
         });
 
         mRebootDeviceButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent actionEvent) {
-                try {
                     PluginViewFactory.getInstance().setHint("Device is rebooting..., so now it is offline state");
-                    mDeviceManager.rebootDevice();
-                } catch (TimeoutException e) {
-                    e.printStackTrace();
-                } catch (AdbCommandRejectedException e) {
-                    e.printStackTrace();
-                } catch (ShellCommandUnresponsiveException e) {
-                    e.printStackTrace();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+                    mDeviceManager.getDevice().reboot(null);
             }
         });
     }
@@ -351,20 +337,6 @@ public class PluginViewFactory implements ToolWindowFactory {
             mPropTable.setValueAt("", i, COLUMN_PROPERTY_VALUE);
         }
         mIsUpdateDone = true;
-    }
-
-    public void updateDeviceListComboBox() {
-        ArrayList<String> deviceNameList = mDeviceManager.getConnectedDeviceNameList();
-        if (deviceNameList.size() == 0) {
-            setHint("Can't find device. Maybe it is booting or not connected");
-            mPropTable.setEnabled(false);
-            mPropTable.setBackground(DEFAULT_TABLE_BACKGROUND_COLOR);
-            clearTable();
-        }
-        mDeviceListComboBox.removeAllItems();
-        for (String deviceName : deviceNameList) {
-            mDeviceListComboBox.addItem(deviceName);
-        }
     }
 
     public void updateTable() {
@@ -434,7 +406,6 @@ public class PluginViewFactory implements ToolWindowFactory {
             mPropTable.setValueAt("", i, COLUMN_PROPERTY_NAME);
             mPropTable.setValueAt("", i, COLUMN_PROPERTY_VALUE);
         }
-
     }
 
     private void cellChangeToCurrentValueAtRow(int row) {
